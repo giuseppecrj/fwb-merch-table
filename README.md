@@ -16,6 +16,8 @@ The contracts are structured as followed:
 
 `MerchTable.sol` - In charge of adding products to catalog and settling escrow arbitration once product is delivered.
 
+`Receipt.sol` - NFT gets sent to the buyer as proof of purchase, this will hold both the productId and any metadata we push to IPFS
+
 `Escrow.sol` - This contract gets created internally when a buyer purchases from a seller. The `ETH` goes into this escrow contract until 2 of the 3 participants agree to either release or refund the amount once the transaction is settled.
 
 ### TODO
