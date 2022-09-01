@@ -4,11 +4,12 @@ pragma solidity ^0.8.13;
 import "forge-std/Test.sol";
 
 import {MerchTable, DataTypes} from "../contracts/MerchTable.sol";
+import {Receipt} from "../contracts/Receipt.sol";
 
 contract MerchTableTest is Test {
   MerchTable public merchTable;
-  uint256 public productId;
   address public _arbiter;
+  Receipt public receipt;
 
   address public bob;
   address public sally;
@@ -21,68 +22,71 @@ contract MerchTableTest is Test {
     bob = address(3);
 
     merchTable = new MerchTable(_arbiter);
+    receipt = new Receipt(address(merchTable));
 
+    merchTable.setReceipt(address(receipt));
+  }
+
+  function addProduct(string memory productName) internal returns (uint256) {
     DataTypes.Product memory product = DataTypes.Product({
       id: 0,
-      name: "Product 1",
-      category: "Category 1", // could be a standard
+      name: productName,
+      category: "Sone Category", // could be a standard
       imageLink: "http://image.com/1",
       descLink: "http://desc.com/1",
       startTime: 0,
       price: PRICE,
       condition: DataTypes.ProductCondition.NEW,
-      seller: address(0),
-      buyer: address(0),
+      quantity: 2,
+      seller: msg.sender,
+      buyers: new address[](0),
       isSold: false
     });
 
-    vm.prank(sally);
-    productId = merchTable.addProductToStore(product);
+    return merchTable.addProductToStore(product);
   }
 
-  function buyProduct() internal {
+  function buyProduct(uint256 productId) internal {
     vm.deal(bob, 1 ether);
     vm.prank(bob);
     merchTable.buyProduct{value: PRICE}(productId);
   }
 
   function testAddProduct() public {
-    DataTypes.Product memory product = DataTypes.Product({
-      id: 0,
-      name: "Product 2",
-      category: "Category 2", // could be a standard
-      imageLink: "http://image.com/1",
-      descLink: "http://desc.com/1",
-      startTime: 0,
-      price: PRICE,
-      condition: DataTypes.ProductCondition.NEW,
-      seller: sally,
-      buyer: address(0),
-      isSold: false
-    });
+    vm.prank(sally);
+    uint256 productId = addProduct("Product 1");
 
-    uint256 _productId = merchTable.addProductToStore(product);
-    DataTypes.Product memory _product = merchTable.getProduct(_productId);
-
-    assertEq(_product.id, _productId);
-  }
-
-  function testGetProduct() public {
-    DataTypes.Product memory product = merchTable.getProduct(productId);
-    assertEq(product.id, productId);
+    DataTypes.Product memory _product = merchTable.getProduct(productId);
+    assertEq(_product.id, productId);
   }
 
   function testBuyProduct() public {
-    buyProduct();
+    vm.prank(sally);
+    uint256 productId = addProduct("Product 1");
+
+    buyProduct(productId);
 
     DataTypes.Product memory product = merchTable.getProduct(productId);
 
-    assertEq(product.buyer, bob);
-    assertEq(product.isSold, true);
+    assertEq(product.buyers.length, 1);
+    assertEq(product.quantity, 1);
+
+    bool isBuyer = false;
+
+    for (uint256 i = 0; i < product.buyers.length; i++) {
+      if (product.buyers[i] == bob) {
+        isBuyer = true;
+      }
+    }
+
+    assertTrue(isBuyer);
   }
 
   function testGetEscrowByProductId() public {
-    buyProduct();
+    vm.prank(sally);
+    uint256 productId = addProduct("Product 1");
+
+    buyProduct(productId);
 
     (
       address buyer,
@@ -101,7 +105,10 @@ contract MerchTableTest is Test {
   }
 
   function testReleaseAmountToSeller() public {
-    buyProduct();
+    vm.prank(sally);
+    uint256 productId = addProduct("Product 1");
+
+    buyProduct(productId);
 
     vm.prank(bob);
     merchTable.releaseAmountToSeller(productId);
@@ -114,7 +121,10 @@ contract MerchTableTest is Test {
   }
 
   function testRefundAmountToBuyer() public {
-    buyProduct();
+    vm.prank(sally);
+    uint256 productId = addProduct("Product 1");
+
+    buyProduct(productId);
 
     vm.prank(bob);
     merchTable.refundAmountToBuyer(productId);

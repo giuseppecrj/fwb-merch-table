@@ -17,7 +17,8 @@ library DataTypes {
     uint256 price;
     ProductCondition condition;
     address seller;
-    address buyer;
+    uint256 quantity;
+    address[] buyers;
     bool isSold;
   }
 }

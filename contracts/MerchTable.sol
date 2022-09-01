@@ -5,13 +5,20 @@ import {DataTypes} from "./libraries/DataTypes.sol";
 import {Escrow} from "./Escrow.sol";
 import {Events} from "./libraries/Events.sol";
 import {MerchTableStorage} from "./storage/MerchTableStorage.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Receipt} from "./Receipt.sol";
 
-contract MerchTable is MerchTableStorage {
+contract MerchTable is MerchTableStorage, Ownable {
   uint256 public productId;
   address public arbiter;
+  address public receipt;
 
   constructor(address _arbiter) {
     arbiter = _arbiter;
+  }
+
+  function setReceipt(address _receipt) public onlyOwner {
+    receipt = _receipt;
   }
 
   function addProductToStore(DataTypes.Product calldata vars)
@@ -29,13 +36,14 @@ contract MerchTable is MerchTableStorage {
       startTime: vars.startTime,
       price: vars.price,
       condition: DataTypes.ProductCondition(vars.condition),
-      seller: msg.sender,
-      buyer: address(0),
+      quantity: vars.quantity,
+      seller: _msgSender(),
+      buyers: new address[](0),
       isSold: false
     });
 
-    productByStoreById[msg.sender][productId] = product;
-    storeByProductId[productId] = payable(msg.sender);
+    productByStoreById[_msgSender()][productId] = product;
+    storeByProductId[productId] = payable(_msgSender());
 
     emit Events.NewProduct(product);
 
@@ -51,29 +59,36 @@ contract MerchTable is MerchTableStorage {
   }
 
   function buyProduct(uint256 _productId) public payable {
-    DataTypes.Product memory product = productByStoreById[
+    DataTypes.Product storage product = productByStoreById[
       storeByProductId[_productId]
     ][_productId];
 
     if (product.isSold) revert("Product is already sold");
     if (product.price > msg.value) revert("Not enough ether");
-    if (product.seller == msg.sender) revert("You can't buy your own product");
-    if (product.buyer != address(0)) revert("Product is already bought");
+    if (product.seller == _msgSender())
+      revert("You can't buy your own product");
     if (product.seller == address(0)) revert("Product is not for sale");
+    if (product.quantity == 0) revert("Product is out of stock");
 
-    product.buyer = msg.sender;
-    product.isSold = true;
+    product.buyers.push(_msgSender());
+    product.quantity -= 1;
+
+    if (product.quantity == 0) {
+      product.isSold = true;
+    }
 
     productByStoreById[storeByProductId[_productId]][_productId] = product;
 
     Escrow escrow = new Escrow{value: msg.value}(
       productId,
-      payable(msg.sender),
+      payable(_msgSender()),
       payable(product.seller),
       arbiter
     );
 
     escrowByProductId[_productId] = address(escrow);
+
+    Receipt(receipt).mint(_msgSender(), _productId);
   }
 
   function getEscrowByProductId(uint256 _productId)
@@ -93,11 +108,11 @@ contract MerchTable is MerchTableStorage {
 
   function releaseAmountToSeller(uint256 _productId) public {
     Escrow escrow = Escrow(escrowByProductId[_productId]);
-    escrow.releaseAmountToSeller(msg.sender);
+    escrow.releaseAmountToSeller(_msgSender());
   }
 
   function refundAmountToBuyer(uint256 _productId) public {
     Escrow escrow = Escrow(escrowByProductId[_productId]);
-    escrow.refundAmountToBuyer(msg.sender);
+    escrow.refundAmountToBuyer(_msgSender());
   }
 }
