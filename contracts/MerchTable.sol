@@ -25,7 +25,7 @@ contract MerchTable is MerchTableStorage, Ownable {
     public
     returns (uint256)
   {
-    productId += 1;
+    ++productId;
 
     DataTypes.Product memory product = DataTypes.Product({
       id: productId,
