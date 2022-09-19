@@ -5,26 +5,29 @@ import "forge-std/Test.sol";
 
 import {MerchTable, DataTypes} from "../contracts/MerchTable.sol";
 import {Receipt} from "../contracts/Receipt.sol";
+import {FWB} from "./mocks/MockFWB.sol";
 
 contract MerchTableTest is Test {
-  MerchTable public merchTable;
+  MerchTable public _merchTable;
+  Receipt public _receipt;
+  FWB public _fwb;
+
   address public _arbiter;
-  Receipt public receipt;
 
-  address public bob;
-  address public sally;
+  address public _bob;
+  address public _sally;
 
-  uint256 internal constant PRICE = 1 ether;
+  uint256 internal constant PRODUCT_PRICE = 10;
 
   function setUp() public {
     _arbiter = address(1);
-    sally = address(2);
-    bob = address(3);
+    _sally = address(2);
+    _bob = address(3);
 
-    merchTable = new MerchTable(_arbiter);
-    receipt = new Receipt(address(merchTable));
-
-    merchTable.setReceipt(address(receipt));
+    _fwb = new FWB();
+    _merchTable = new MerchTable(_arbiter, address(_fwb));
+    _receipt = new Receipt(address(_merchTable));
+    _merchTable.setReceipt(address(_receipt));
   }
 
   function addProduct(string memory productName) internal returns (uint256) {
@@ -35,7 +38,7 @@ contract MerchTableTest is Test {
       imageLink: "http://image.com/1",
       descLink: "http://desc.com/1",
       startTime: 0,
-      price: PRICE,
+      price: PRODUCT_PRICE,
       condition: DataTypes.ProductCondition.NEW,
       quantity: 2,
       seller: msg.sender,
@@ -43,30 +46,32 @@ contract MerchTableTest is Test {
       isSold: false
     });
 
-    return merchTable.addProductToStore(product);
+    return _merchTable.addProductToStore(product);
   }
 
   function buyProduct(uint256 productId) internal {
-    vm.deal(bob, 1 ether);
-    vm.prank(bob);
-    merchTable.buyProduct{value: PRICE}(productId);
+    _fwb.transfer(_bob, PRODUCT_PRICE);
+
+    vm.startPrank(_bob);
+    _fwb.approve(address(_merchTable), PRODUCT_PRICE);
+    _merchTable.buyProduct(productId, 1);
+    vm.stopPrank();
   }
 
   function testAddProduct() public {
-    vm.prank(sally);
+    vm.prank(_sally);
     uint256 productId = addProduct("Product 1");
 
-    DataTypes.Product memory _product = merchTable.getProduct(productId);
+    DataTypes.Product memory _product = _merchTable.getProduct(productId);
     assertEq(_product.id, productId);
   }
 
   function testBuyProduct() public {
-    vm.prank(sally);
+    vm.prank(_sally);
     uint256 productId = addProduct("Product 1");
 
     buyProduct(productId);
-
-    DataTypes.Product memory product = merchTable.getProduct(productId);
+    DataTypes.Product memory product = _merchTable.getProduct(productId);
 
     assertEq(product.buyers.length, 1);
     assertEq(product.quantity, 1);
@@ -74,65 +79,11 @@ contract MerchTableTest is Test {
     bool isBuyer = false;
 
     for (uint256 i = 0; i < product.buyers.length; i++) {
-      if (product.buyers[i] == bob) {
+      if (product.buyers[i] == _bob) {
         isBuyer = true;
       }
     }
 
     assertTrue(isBuyer);
-  }
-
-  function testGetEscrowByProductId() public {
-    vm.prank(sally);
-    uint256 productId = addProduct("Product 1");
-
-    buyProduct(productId);
-
-    (
-      address buyer,
-      ,
-      address arbiter,
-      bool isFinalized,
-      uint256 releaseCount,
-      uint256 refundCount
-    ) = merchTable.getEscrowByProductId(productId);
-
-    assertEq(buyer, bob);
-    assertEq(_arbiter, arbiter);
-    assertEq(isFinalized, false);
-    assertEq(releaseCount, 0);
-    assertEq(refundCount, 0);
-  }
-
-  function testReleaseAmountToSeller() public {
-    vm.prank(sally);
-    uint256 productId = addProduct("Product 1");
-
-    buyProduct(productId);
-
-    vm.prank(bob);
-    merchTable.releaseAmountToSeller(productId);
-
-    vm.prank(sally);
-    merchTable.releaseAmountToSeller(productId);
-
-    assertEq(sally.balance, PRICE);
-    assertEq(bob.balance, 0 ether);
-  }
-
-  function testRefundAmountToBuyer() public {
-    vm.prank(sally);
-    uint256 productId = addProduct("Product 1");
-
-    buyProduct(productId);
-
-    vm.prank(bob);
-    merchTable.refundAmountToBuyer(productId);
-
-    vm.prank(_arbiter);
-    merchTable.refundAmountToBuyer(productId);
-
-    assertEq(sally.balance, 0 ether);
-    assertEq(bob.balance, PRICE);
   }
 }
